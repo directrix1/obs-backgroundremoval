@@ -38,6 +38,7 @@ const char* MODEL_RVM = "rvm_mobilenetv3_fp32.onnx";
 const char* USEGPU_CPU = "cpu";
 const char* USEGPU_DML = "dml";
 const char* USEGPU_CUDA = "cuda";
+const char* USEGPU_ROCM = "rocm";
 
 struct background_removal_filter {
 	std::unique_ptr<Ort::Session> session;
@@ -135,7 +136,9 @@ static obs_properties_t *filter_properties(void *data)
 		OBS_COMBO_FORMAT_STRING);
 
 	obs_property_list_add_string(p_use_gpu, obs_module_text("CPU"), USEGPU_CPU);
-#ifdef WITH_CUDA
+#ifdef WITH_ROCM
+	obs_property_list_add_string(p_use_gpu, obs_module_text("GPU - ROCm"), USEGPU_ROCM);
+#elif WITH_CUDA
 	obs_property_list_add_string(p_use_gpu, obs_module_text("GPU - CUDA"), USEGPU_CUDA);
 #elif _WIN32
 	obs_property_list_add_string(p_use_gpu, obs_module_text("GPU - DirectML"), USEGPU_DML);
@@ -206,16 +209,18 @@ static void createOrtSession(struct background_removal_filter *tf) {
 #endif
 
 	try {
-#ifdef WITH_CUDA
+#ifdef WITH_ROCM
+        if (tf->useGPU == USEGPU_ROCM) {
+            Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_ROCm(sessionOptions, 0));
+        }
+#elif WITH_CUDA
         if (tf->useGPU == USEGPU_CUDA) {
             Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_CUDA(sessionOptions, 0));
         }
-#else
-#if _WIN32
+#elif _WIN32
         if (tf->useGPU == USEGPU_DML) {
             Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_DML(sessionOptions, 0));
         }
-#endif
 #endif
 		tf->session.reset(new Ort::Session(*tf->env, tf->modelFilepath, sessionOptions));
 	} catch (const std::exception& e) {
